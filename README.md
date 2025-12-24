@@ -7,7 +7,7 @@
 ## Platforms
 
 ### 📱 Mobile (Android/iOS)
-- **NFC sharing**: Touch devices to share instantly. (Android only - Apple sucks)
+- **NFC sharing**: Touch devices to share instantly. (Android only - Apple doesn't allow NFC integration)
 - **QR code sharing**: Scan codes to share
 - **Share menu integration**: Share from Gallery, Files, etc. (Android)
 
