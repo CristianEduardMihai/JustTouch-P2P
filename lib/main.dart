@@ -11,6 +11,7 @@ import 'services/file_picker_service.dart';
 import 'services/file_server_service.dart';
 import 'services/nfc_service.dart';
 import 'services/share_service.dart';
+import 'services/webrtc_share_service.dart';
 import 'dart:io';
 
 void main() {
@@ -54,6 +55,7 @@ class JustTouchHomePage extends StatefulWidget {
 class _JustTouchHomePageState extends State<JustTouchHomePage> {
   static final Logger _logger = Logger('JustTouchHomePage');
   final FileServerService _fileServer = FileServerService();
+  final WebRtcShareService _webrtcShareService = WebRtcShareService();
   List<SharedFile> _selectedFiles = [];
   bool _isNfcAvailable = false;
   bool _isHceSupported = false;
@@ -69,6 +71,13 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
     _checkNfcAvailability();
     _requestPermissions();
     _initializeShareService();
+    _webrtcShareService.addListener(_onWebRtcStateChanged);
+  }
+
+  void _onWebRtcStateChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _checkPlatform() {
@@ -118,7 +127,9 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
 
   @override
   void dispose() {
+    _webrtcShareService.removeListener(_onWebRtcStateChanged);
     _stopSharing();
+    _webrtcShareService.dispose();
     super.dispose();
   }
 
@@ -178,30 +189,29 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
         _isSharing = true;
       });
 
-      // Enable HCE first (this may prompt user to set as default service. it will not work if so)
-      final hceEnabled = await NfcService.enableHce();
-      if (!hceEnabled) {
-        throw Exception('Failed to enable NFC service');
+      // Start WebRTC P2P sharing
+      final shareUrl = await _webrtcShareService.startSharing(_selectedFiles);
+      if (shareUrl == null) {
+        throw Exception('Failed to connect to WebRTC signaling server');
       }
 
-      // Start the file server
-      final serverUrl = await _fileServer.startServer(_selectedFiles);
-      if (serverUrl == null) {
-        throw Exception('Failed to start file server');
-      }
-
-      // Set up NFC with the server URL
-      final nfcSuccess = await NfcService.setNfcUrl(serverUrl);
-      if (!nfcSuccess) {
-        throw Exception('Failed to set up NFC');
+      // Enable HCE and set NFC URL
+      if (_isNfcAvailable && _isHceSupported) {
+        final hceEnabled = await NfcService.enableHce();
+        if (hceEnabled) {
+          final nfcSuccess = await NfcService.setNfcUrl(shareUrl);
+          if (!nfcSuccess) {
+            _logger.warning('Failed to set NFC URL');
+          }
+        }
       }
 
       setState(() {
-        _serverUrl = serverUrl;
+        _serverUrl = shareUrl;
         _isDefaultService = true;
       });
 
-      _showMessage('Touch your phone to another device to share files!');
+      _showMessage('Touch your phone to another device or show QR code to share!');
     } catch (e) {
       _showMessage('Error starting share: $e');
       setState(() {
@@ -221,17 +231,17 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
         _isSharing = true;
       });
 
-      // Start the file server (without NFC)
-      final serverUrl = await _fileServer.startServer(_selectedFiles);
-      if (serverUrl == null) {
-        throw Exception('Failed to start file server');
+      // Start WebRTC P2P sharing session
+      final shareUrl = await _webrtcShareService.startSharing(_selectedFiles);
+      if (shareUrl == null) {
+        throw Exception('Failed to connect to WebRTC signaling server');
       }
 
       setState(() {
-        _serverUrl = serverUrl;
+        _serverUrl = shareUrl;
       });
 
-      _showMessage('Server started! Use QR code to share files.');
+      _showMessage('WebRTC ready! Scan QR code to download files.');
 
       // Automatically show QR code
       _showQrCode();
@@ -244,6 +254,7 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
   }
 
   Future<void> _stopSharing() async {
+    await _webrtcShareService.stopSharing();
     await _fileServer.stopServer();
 
     // Only disable NFC on platforms that support it (Android, not desktop/web/iOS)
@@ -725,29 +736,100 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
                             if (_isSharing && _serverUrl != null) ...[
                               const SizedBox(height: 16),
                               Container(
-                                padding: const EdgeInsets.all(12),
+                                padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(12),
+                                  color: _webrtcShareService.status == ShareStatus.completed
+                                      ? Colors.green.shade50
+                                      : Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: _webrtcShareService.status == ShareStatus.completed
+                                        ? Colors.green.shade200
+                                        : Colors.blue.shade200,
+                                  ),
                                 ),
-                                child: Row(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Icon(
-                                      Icons.info,
-                                      color: Colors.blue.shade600,
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          _webrtcShareService.status == ShareStatus.completed
+                                              ? Icons.check_circle
+                                              : _webrtcShareService.status == ShareStatus.transferring
+                                                  ? Icons.sync
+                                                  : Icons.info,
+                                          color: _webrtcShareService.status == ShareStatus.completed
+                                              ? Colors.green.shade600
+                                              : Colors.blue.shade600,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            _webrtcShareService.statusMessage,
+                                            style: TextStyle(
+                                              color: _webrtcShareService.status == ShareStatus.completed
+                                                  ? Colors.green.shade800
+                                                  : Colors.blue.shade800,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ),
+                                        if (_webrtcShareService.speedText.isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.pink.shade50,
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: Colors.pink.shade200),
+                                            ),
+                                            child: Text(
+                                              _webrtcShareService.speedText,
+                                              style: TextStyle(
+                                                color: Colors.pink.shade700,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        _isDesktop
-                                            ? 'Server running! Scan the QR code to access files...'
-                                            : 'Touch your phone to another device now...',
-                                        style: TextStyle(
-                                          color: Colors.blue.shade700,
-                                          fontWeight: FontWeight.w500,
+                                    if (_webrtcShareService.status == ShareStatus.transferring) ...[
+                                      const SizedBox(height: 12),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: LinearProgressIndicator(
+                                          value: _webrtcShareService.progress,
+                                          minHeight: 8,
+                                          backgroundColor: Colors.blue.shade100,
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                            Theme.of(context).colorScheme.primary,
+                                          ),
                                         ),
                                       ),
-                                    ),
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            '${(_webrtcShareService.progress * 100).toInt()}% completed',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.blue.shade900,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          Text(
+                                            _webrtcShareService.currentFileName,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.blue.shade900,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
