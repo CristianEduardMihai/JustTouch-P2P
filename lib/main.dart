@@ -820,11 +820,16 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
-                                          Text(
-                                            _webrtcShareService.currentFileName,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.blue.shade900,
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              _webrtcShareService.currentFileName,
+                                              textAlign: TextAlign.end,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.blue.shade900,
+                                              ),
                                             ),
                                           ),
                                         ],

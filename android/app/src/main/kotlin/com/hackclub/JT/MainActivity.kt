@@ -1,9 +1,11 @@
 package com.hackclub.JT
 
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.cardemulation.CardEmulation
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +16,7 @@ class MainActivity : FlutterActivity() {
     private var nfcAdapter: NfcAdapter? = null
     private var cardEmulation: CardEmulation? = null
     private var shareMethodChannel: MethodChannel? = null
+    private var isHceActive = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,9 +29,6 @@ class MainActivity : FlutterActivity() {
         
         // Handle shared files on app start
         handleSharedIntent(intent)
-        
-        nfcAdapter = NfcAdapter.getDefaultAdapter(this)
-        cardEmulation = CardEmulation.getInstance(nfcAdapter)
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -59,21 +59,24 @@ class MainActivity : FlutterActivity() {
                 }
                 "enableHce" -> {
                     try {
-                        // HCE doesn't require being the default service
-                        // Just return success - the service will work automatically
+                        val component = ComponentName(this, NfcService::class.java)
+                        val success = cardEmulation?.setPreferredService(this, component) ?: false
+                        isHceActive = true
+                        Log.d("MainActivity", "setPreferredService result: $success for component: $component")
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("HCE_ERROR", e.message, null)
                     }
                 }
                 "isDefaultService" -> {
-                    // We don't need to be the default service for HCE to work
-                    // Just return true so the UI doesn't block the user
                     result.success(true)
                 }
                 "disableHce" -> {
                     try {
+                        cardEmulation?.unsetPreferredService(this)
+                        isHceActive = false
                         NfcService.setUrl("")
+                        Log.d("MainActivity", "unsetPreferredService completed")
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("HCE_ERROR", e.message, null)
@@ -83,6 +86,23 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        if (isHceActive) {
+            val component = ComponentName(this, NfcService::class.java)
+            cardEmulation?.setPreferredService(this, component)
+            Log.d("MainActivity", "Re-applied preferred HCE service in onResume")
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (isHceActive) {
+            cardEmulation?.unsetPreferredService(this)
+            Log.d("MainActivity", "Temporarily paused preferred HCE service in onPause")
         }
     }
     
