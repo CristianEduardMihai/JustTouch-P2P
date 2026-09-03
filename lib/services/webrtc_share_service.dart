@@ -8,6 +8,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:logging/logging.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/shared_file.dart';
+import 'status_notification_service.dart';
 
 enum ShareStatus {
   idle,
@@ -573,10 +574,26 @@ class WebRtcShareService with ChangeNotifier {
   void _updateStatus(ShareStatus newStatus, String msg) {
     _status = newStatus;
     _statusMessage = msg;
+    final notificationMessage = switch (newStatus) {
+      ShareStatus.waitingForReceiver => 'Waiting for peer to connect',
+      ShareStatus.connectingSignaling => 'Connecting to signaling server',
+      ShareStatus.negotiating => 'Connecting to peer',
+      ShareStatus.connected => 'Peer connected',
+      ShareStatus.transferring => msg,
+      ShareStatus.completed => 'Sharing complete',
+      ShareStatus.error => 'Error: $msg',
+      ShareStatus.idle => null,
+    };
+    if (notificationMessage == null) {
+      StatusNotificationService.cancel();
+    } else {
+      StatusNotificationService.showStatus(notificationMessage);
+    }
     notifyListeners();
   }
 
   Future<void> stopSharing() async {
+    StatusNotificationService.cancel();
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
     _stopSpeedTimer();

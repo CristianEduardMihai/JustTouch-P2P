@@ -58,6 +58,7 @@ dependencies:
   # WebRTC and P2P
   flutter_webrtc: ^0.12.5
   web_socket_channel: ^3.0.1
+  flutter_local_notifications: ^19.4.2
   
   # QR code generation
   qr_flutter: ^4.1.0

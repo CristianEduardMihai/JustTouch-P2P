@@ -128,8 +128,6 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
   @override
   void dispose() {
     _webrtcShareService.removeListener(_onWebRtcStateChanged);
-    _stopSharing();
-    _webrtcShareService.dispose();
     super.dispose();
   }
 
