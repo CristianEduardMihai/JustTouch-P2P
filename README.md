@@ -1,5 +1,5 @@
 # JustTouch
-<img src="assets/images/logo.png" alt="Logo" width="120" align="left" style="margin-right: 20px;"/>
+<img src="assets/images/logo-square.png" alt="Logo" width="120" align="left" style="margin-right: 20px;"/>
 
 
 **JustTouch** is a cross-platform file sharing app for Android, iOS, Windows, macOS, and Linux. Share files with just a tap on mobile devices via NFC, or use QR codes on any platform. Pick one or more files, generate a web link, and send it to another device. The other person gets the link and downloads the file directly. No pairing, no logins, no cloud, no app installation required.
@@ -29,11 +29,10 @@
    - Select the file(s) you want to share
    - Tap your phone to another device - the web link is sent via NFC
    - The receiver gets the link open in their browser and downloads the file(s)
-   * Note: Both devices must be connected to the same Wi-Fi network for NFC sharing to work.
 
 2. **Receiver:**
    - Just Touch.
 
 ## Why Web Links?
 
-We use web links because they’re lightweight, fast to share, and work great with peer-to-peer protocols. The actual files aren’t sent over NFC — just the link. File transfer happens over the internet using the web link, similar to how torrents work.
+The web link lets the receiver download files directly in a browser, so they don’t need to install or use the JustTouch app. Only the link is shared via NFC or QR code. The files themselves are transferred peer-to-peer over the internet, similar to how torrents work. This keeps sharing lightweight, fast, and app-independent.
