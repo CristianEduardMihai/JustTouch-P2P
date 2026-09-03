@@ -43,7 +43,10 @@ class WebRtcShareService with ChangeNotifier {
   RTCDataChannel? _dataChannel;
   StreamSubscription? _wsSubscription;
 
-  // Flow control & timers
+  // Fallback & Flow control
+  Timer? _fallbackTimer;
+  bool _isTransferring = false;
+  bool _isRelayMode = false;
   Timer? _speedTimer;
   int _lastBytesSent = 0;
   DateTime _lastSpeedCalcTime = DateTime.now();
@@ -88,6 +91,8 @@ class WebRtcShareService with ChangeNotifier {
     _totalBytes = _files.fold(0, (sum, f) => sum + f.size);
     _bytesSent = 0;
     _progress = 0.0;
+    _isTransferring = false;
+    _isRelayMode = false;
     _roomId = _generateRoomId();
     _updateStatus(ShareStatus.connectingSignaling, 'Connecting to signaling server...');
 
@@ -165,9 +170,16 @@ class WebRtcShareService with ChangeNotifier {
 
         case 'peer-joined':
           if (message['role'] == 'receiver') {
-            _logger.info('Receiver detected! Creating WebRTC PeerConnection & Offer...');
-            _updateStatus(ShareStatus.negotiating, 'Receiver connected! Negotiating WebRTC...');
+            _logger.info('Receiver detected! Attempting WebRTC P2P with Relay fallback...');
+            _updateStatus(ShareStatus.negotiating, 'Receiver connected! Negotiating connection...');
             await _initiatePeerConnection();
+
+            // Set a fallback timer: if direct P2P DataChannel is not open within 2.5s, fallback to WebSocket relay
+            _fallbackTimer = Timer(const Duration(milliseconds: 2500), () {
+              if (!_isTransferring && _status != ShareStatus.completed) {
+                _startWebSocketRelayTransfer();
+              }
+            });
           }
           break;
 
@@ -208,6 +220,22 @@ class WebRtcShareService with ChangeNotifier {
         {'urls': 'stun:stun.l.google.com:19302'},
         {'urls': 'stun:stun1.l.google.com:19302'},
         {'urls': 'stun:stun2.l.google.com:19302'},
+        {'urls': 'stun:stun.relay.metered.ca:80'},
+        {
+          'urls': 'turn:openrelay.metered.ca:80',
+          'username': 'openrelay',
+          'credential': 'openrelay',
+        },
+        {
+          'urls': 'turn:openrelay.metered.ca:443',
+          'username': 'openrelay',
+          'credential': 'openrelay',
+        },
+        {
+          'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
+          'username': 'openrelay',
+          'credential': 'openrelay',
+        },
       ],
       'sdpSemantics': 'unified-plan',
     };
@@ -231,14 +259,19 @@ class WebRtcShareService with ChangeNotifier {
     _peerConnection!.onConnectionState = (state) {
       _logger.info('PeerConnection state: $state');
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-        _updateStatus(ShareStatus.connected, 'Direct P2P Encrypted Connection Ready');
+        _fallbackTimer?.cancel();
+        _updateStatus(ShareStatus.connected, 'Direct P2P Connection Ready');
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        _updateStatus(ShareStatus.error, 'WebRTC Connection failed');
+        _logger.warning('Direct P2P failed, activating WebSocket relay immediately');
+        _fallbackTimer?.cancel();
+        if (!_isTransferring && _status != ShareStatus.completed) {
+          _startWebSocketRelayTransfer();
+        }
       }
     };
 
-    // Create RTCDataChannel for file transfer
-    final init = RTCDataChannelInit()
+    _peerConnection!.onIceConnectionState = (state) {
+      _logger.info('IceConnectionState: $state');
       ..ordered = true
       ..maxRetransmits = 30;
 
@@ -247,8 +280,11 @@ class WebRtcShareService with ChangeNotifier {
     _dataChannel!.onDataChannelState = (state) {
       _logger.info('DataChannel state: $state');
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
-        _updateStatus(ShareStatus.transferring, 'Sending files...');
-        _startFileTransfer();
+        _fallbackTimer?.cancel();
+        if (!_isTransferring) {
+          _updateStatus(ShareStatus.transferring, 'Sending files via direct P2P...');
+          _startP2PFileTransfer();
+        }
       }
     };
 
@@ -272,16 +308,14 @@ class WebRtcShareService with ChangeNotifier {
     });
   }
 
-  Future<void> _startFileTransfer() async {
-    if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) {
-      _logger.warning('Cannot start transfer: DataChannel not open');
-      return;
-    }
-
+  // Direct WebRTC P2P Transfer
+  Future<void> _startP2PFileTransfer() async {
+    if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) return;
+    _isTransferring = true;
+    _isRelayMode = false;
     _startSpeedTimer();
 
     try {
-      // 1. Send Metadata of all files
       final fileMetadataList = _files.map((f) => {
         'name': f.fileName,
         'size': f.size,
@@ -295,7 +329,6 @@ class WebRtcShareService with ChangeNotifier {
 
       await Future.delayed(const Duration(milliseconds: 100));
 
-      // 2. Send each file
       for (int i = 0; i < _files.length; i++) {
         final file = _files[i];
         _currentFileName = file.fileName;
@@ -304,7 +337,6 @@ class WebRtcShareService with ChangeNotifier {
           'Sending ${file.fileName} (${i + 1}/${_files.length})...',
         );
 
-        // Notify file start
         _dataChannel!.send(RTCDataChannelMessage(jsonEncode({
           'type': 'file-start',
           'index': i,
@@ -314,20 +346,18 @@ class WebRtcShareService with ChangeNotifier {
 
         await Future.delayed(const Duration(milliseconds: 50));
 
-        // Read and send chunks
         if (file.bytes != null) {
-          await _sendBytesChunks(file.bytes!);
+          await _sendP2PBytesChunks(file.bytes!);
         } else if (file.path.isNotEmpty) {
           final ioFile = File(file.path);
           if (await ioFile.exists()) {
             final stream = ioFile.openRead();
             await for (final chunk in stream) {
-              await _sendUint8List(Uint8List.fromList(chunk));
+              await _sendP2PUint8List(Uint8List.fromList(chunk));
             }
           }
         }
 
-        // Notify file end
         _dataChannel!.send(RTCDataChannelMessage(jsonEncode({
           'type': 'file-end',
           'index': i,
@@ -336,7 +366,6 @@ class WebRtcShareService with ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 50));
       }
 
-      // 3. Notify all files complete
       _dataChannel!.send(RTCDataChannelMessage(jsonEncode({
         'type': 'all-complete',
       })));
@@ -344,24 +373,24 @@ class WebRtcShareService with ChangeNotifier {
       _progress = 1.0;
       _updateStatus(ShareStatus.completed, 'All files sent successfully!');
     } catch (e) {
-      _logger.severe('Error during file transfer: $e');
+      _logger.severe('Error during P2P file transfer: $e');
       _updateStatus(ShareStatus.error, 'Transfer failed: $e');
     } finally {
       _stopSpeedTimer();
     }
   }
 
-  Future<void> _sendBytesChunks(Uint8List bytes) async {
+  Future<void> _sendP2PBytesChunks(Uint8List bytes) async {
     int offset = 0;
     while (offset < bytes.length) {
       final end = (offset + chunkSize < bytes.length) ? offset + chunkSize : bytes.length;
       final sub = bytes.sublist(offset, end);
-      await _sendUint8List(sub);
+      await _sendP2PUint8List(sub);
       offset = end;
     }
   }
 
-  Future<void> _sendUint8List(Uint8List chunk) async {
+  Future<void> _sendP2PUint8List(Uint8List chunk) async {
     if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) {
       throw Exception('DataChannel closed during transfer');
     }
@@ -372,12 +401,139 @@ class WebRtcShareService with ChangeNotifier {
     if (_totalBytes > 0) {
       _progress = (_bytesSent / _totalBytes).clamp(0.0, 1.0);
     }
-
     notifyListeners();
 
-    // Flow control: brief yield to prevent buffer bloat
     if (_bytesSent % (chunkSize * 8) == 0) {
       await Future.delayed(const Duration(milliseconds: 1));
+    }
+  }
+
+  // WebSocket Relay Transfer Fallback (Guaranteed for Cellular 4G/5G)
+  Future<void> _startWebSocketRelayTransfer() async {
+    if (_wsChannel == null || _isTransferring) return;
+    _isTransferring = true;
+    _isRelayMode = true;
+    _startSpeedTimer();
+
+    _updateStatus(
+      ShareStatus.transferring,
+      'Sending files via Secure Relay (Cellular)...',
+    );
+
+    try {
+      final fileMetadataList = _files.map((f) => {
+        'name': f.fileName,
+        'size': f.size,
+        'mimeType': f.mimeType,
+      }).toList();
+
+      // Notify receiver that relay mode is activated
+      _sendSignaling({
+        'type': 'relay',
+        'roomId': _roomId,
+        'data': {'type': 'relay-activated'},
+      });
+
+      await Future.delayed(const Duration(milliseconds: 80));
+
+      // Send Metadata
+      _sendSignaling({
+        'type': 'relay',
+        'roomId': _roomId,
+        'data': {
+          'type': 'meta',
+          'files': fileMetadataList,
+        },
+      });
+
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Stream each file
+      for (int i = 0; i < _files.length; i++) {
+        final file = _files[i];
+        _currentFileName = file.fileName;
+        _updateStatus(
+          ShareStatus.transferring,
+          'Sending ${file.fileName} (${i + 1}/${_files.length})...',
+        );
+
+        _sendSignaling({
+          'type': 'relay',
+          'roomId': _roomId,
+          'data': {
+            'type': 'file-start',
+            'index': i,
+            'name': file.fileName,
+            'size': file.size,
+          },
+        });
+
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        if (file.bytes != null) {
+          await _sendRelayBytesChunks(file.bytes!);
+        } else if (file.path.isNotEmpty) {
+          final ioFile = File(file.path);
+          if (await ioFile.exists()) {
+            final stream = ioFile.openRead();
+            await for (final chunk in stream) {
+              await _sendRelayUint8List(Uint8List.fromList(chunk));
+            }
+          }
+        }
+
+        _sendSignaling({
+          'type': 'relay',
+          'roomId': _roomId,
+          'data': {
+            'type': 'file-end',
+            'index': i,
+          },
+        });
+
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+
+      _sendSignaling({
+        'type': 'relay',
+        'roomId': _roomId,
+        'data': {'type': 'all-complete'},
+      });
+
+      _progress = 1.0;
+      _updateStatus(ShareStatus.completed, 'All files sent successfully!');
+    } catch (e) {
+      _logger.severe('Error during relay transfer: $e');
+      _updateStatus(ShareStatus.error, 'Relay transfer failed: $e');
+    } finally {
+      _stopSpeedTimer();
+    }
+  }
+
+  Future<void> _sendRelayBytesChunks(Uint8List bytes) async {
+    int offset = 0;
+    while (offset < bytes.length) {
+      final end = (offset + chunkSize < bytes.length) ? offset + chunkSize : bytes.length;
+      final sub = bytes.sublist(offset, end);
+      await _sendRelayUint8List(sub);
+      offset = end;
+    }
+  }
+
+  Future<void> _sendRelayUint8List(Uint8List chunk) async {
+    if (_wsChannel == null) throw Exception('WebSocket closed during relay transfer');
+
+    _wsChannel!.sink.add(chunk);
+    _bytesSent += chunk.length;
+
+    if (_totalBytes > 0) {
+      _progress = (_bytesSent / _totalBytes).clamp(0.0, 1.0);
+    }
+    notifyListeners();
+
+    // Flow control: slight pause to prevent buffer bloat over websocket
+    if (_bytesSent % (chunkSize * 4) == 0) {
+      await Future.delayed(const Duration(milliseconds: 2));
     }
   }
 
@@ -418,7 +574,11 @@ class WebRtcShareService with ChangeNotifier {
   }
 
   Future<void> stopSharing() async {
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
     _stopSpeedTimer();
+    _isTransferring = false;
+    _isRelayMode = false;
 
     try {
       if (_wsChannel != null && _roomId != null) {
@@ -458,4 +618,3 @@ class WebRtcShareService with ChangeNotifier {
     super.dispose();
   }
 }
-

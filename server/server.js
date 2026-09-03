@@ -36,7 +36,6 @@ const server = http.createServer((req, res) => {
 
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
-      // If requested file doesn't exist or is a directory/route, fallback to index.html (SPA)
       filePath = path.join(PUBLIC_DIR, 'index.html');
     }
 
@@ -51,7 +50,7 @@ const server = http.createServer((req, res) => {
 
       res.writeHead(200, {
         'Content-Type': contentType,
-        'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=86400',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
         'X-Content-Type-Options': 'nosniff',
       });
       res.end(content);
@@ -59,7 +58,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// WebSocket Signaling Server
+// WebSocket Signaling & Relay Server
 const wss = new WebSocketServer({ server });
 
 // Map of roomId -> { sender: ws, receiver: ws, createdAt: timestamp }
@@ -80,7 +79,19 @@ wss.on('connection', (ws, req) => {
     ws.isAlive = true;
   });
 
-  ws.on('message', (messageRaw) => {
+  ws.on('message', (messageRaw, isBinary) => {
+    // Binary chunk forwarding for relay transfers
+    if (isBinary) {
+      if (!currentRoomId || !rooms.has(currentRoomId)) return;
+      const room = rooms.get(currentRoomId);
+      const targetRole = currentRole === 'sender' ? 'receiver' : 'sender';
+      const targetWs = room[targetRole];
+      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+        targetWs.send(messageRaw, { binary: true });
+      }
+      return;
+    }
+
     let message;
     try {
       message = JSON.parse(messageRaw.toString());
@@ -106,15 +117,15 @@ wss.on('connection', (ws, req) => {
         }
 
         room[role] = ws;
-        console.log(`[Room ${roomId}] Peer joined as ${role}. Total rooms: ${rooms.size}`);
+        console.log(`[Room ${roomId}] Peer joined as ${role}. (Total rooms: ${rooms.size})`);
 
         sendJson(ws, { type: 'joined', roomId, role });
 
-        // If both sender and receiver are now present, notify them
+        // If both peers are connected, notify them to start negotiation
         if (room.sender && room.receiver) {
           sendJson(room.sender, { type: 'peer-joined', role: 'receiver' });
           sendJson(room.receiver, { type: 'peer-joined', role: 'sender' });
-          console.log(`[Room ${roomId}] Both peers connected! WebRTC handshake ready.`);
+          console.log(`[Room ${roomId}] Both peers connected! WebRTC / Relay ready.`);
         }
         break;
       }
@@ -134,8 +145,25 @@ wss.on('connection', (ws, req) => {
             from: currentRole,
             data,
           });
-        } else {
-          console.log(`[Room ${currentRoomId}] Target peer (${targetRole}) not connected to receive signal`);
+        }
+        break;
+      }
+
+      // JSON Relay Fallback for cellular networks / symmetric NATs
+      case 'relay': {
+        if (!currentRoomId || !rooms.has(currentRoomId)) return;
+        const room = rooms.get(currentRoomId);
+        const targetRole = currentRole === 'sender' ? 'receiver' : 'sender';
+        const targetWs = room[targetRole];
+
+        console.log(`[Room ${currentRoomId}] Relay message forwarded to ${targetRole}: ${message.data?.type || 'data'}`);
+
+        if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+          sendJson(targetWs, {
+            type: 'relay',
+            from: currentRole,
+            data: message.data,
+          });
         }
         break;
       }
@@ -164,7 +192,6 @@ wss.on('connection', (ws, req) => {
         sendJson(otherWs, { type: 'peer-left', role: currentRole });
       }
 
-      // If room is empty, remove it
       if (!room.sender && !room.receiver) {
         rooms.delete(currentRoomId);
         console.log(`[Room ${currentRoomId}] Room destroyed`);
@@ -196,9 +223,8 @@ wss.on('close', () => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`=========================================`);
-  console.log(`🚀 JustTouch WebRTC Server Running`);
+  console.log(`🚀 JustTouch WebRTC & Relay Server Running`);
   console.log(`📡 Port: ${PORT}`);
   console.log(`🌐 Local Web Interface: http://localhost:${PORT}`);
   console.log(`=========================================`);
 });
-

@@ -11,8 +11,10 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val TAG = "MainActivity"
     private val CHANNEL = "com.hackclub.justtouch/nfc"
     private val SHARE_CHANNEL = "com.hackclub.justtouch/share"
+    private val NDEF_AID = "D2760000850101"
     private var nfcAdapter: NfcAdapter? = null
     private var cardEmulation: CardEmulation? = null
     private var shareMethodChannel: MethodChannel? = null
@@ -48,7 +50,7 @@ class MainActivity : FlutterActivity() {
                         NfcService.setUrl(url)
                         
                         // Also send intent to service to update NDEF message
-                        val intent = android.content.Intent(this, NfcService::class.java)
+                        val intent = Intent(this, NfcService::class.java)
                         intent.putExtra("ndefUrl", url)
                         startService(intent)
                         
@@ -60,11 +62,14 @@ class MainActivity : FlutterActivity() {
                 "enableHce" -> {
                     try {
                         val component = ComponentName(this, NfcService::class.java)
+                        // Dynamically register AID only while active so it doesn't conflict in the background
+                        cardEmulation?.registerAidsForService(component, CardEmulation.CATEGORY_OTHER, listOf(NDEF_AID))
                         val success = cardEmulation?.setPreferredService(this, component) ?: false
                         isHceActive = true
-                        Log.d("MainActivity", "setPreferredService result: $success for component: $component")
+                        Log.d(TAG, "Dynamic AID registered & setPreferredService: $success for $component")
                         result.success(true)
                     } catch (e: Exception) {
+                        Log.e(TAG, "Error enabling HCE", e)
                         result.error("HCE_ERROR", e.message, null)
                     }
                 }
@@ -73,12 +78,15 @@ class MainActivity : FlutterActivity() {
                 }
                 "disableHce" -> {
                     try {
+                        val component = ComponentName(this, NfcService::class.java)
                         cardEmulation?.unsetPreferredService(this)
+                        cardEmulation?.removeAidsForService(component, CardEmulation.CATEGORY_OTHER)
                         isHceActive = false
                         NfcService.setUrl("")
-                        Log.d("MainActivity", "unsetPreferredService completed")
+                        Log.d(TAG, "unsetPreferredService and removed dynamic AID")
                         result.success(true)
                     } catch (e: Exception) {
+                        Log.e(TAG, "Error disabling HCE", e)
                         result.error("HCE_ERROR", e.message, null)
                     }
                 }
@@ -93,16 +101,19 @@ class MainActivity : FlutterActivity() {
         super.onResume()
         if (isHceActive) {
             val component = ComponentName(this, NfcService::class.java)
+            cardEmulation?.registerAidsForService(component, CardEmulation.CATEGORY_OTHER, listOf(NDEF_AID))
             cardEmulation?.setPreferredService(this, component)
-            Log.d("MainActivity", "Re-applied preferred HCE service in onResume")
+            Log.d(TAG, "Re-applied preferred HCE service and dynamic AID in onResume")
         }
     }
 
     override fun onPause() {
         super.onPause()
         if (isHceActive) {
+            val component = ComponentName(this, NfcService::class.java)
             cardEmulation?.unsetPreferredService(this)
-            Log.d("MainActivity", "Temporarily paused preferred HCE service in onPause")
+            cardEmulation?.removeAidsForService(component, CardEmulation.CATEGORY_OTHER)
+            Log.d(TAG, "Temporarily unset preferred HCE service and dynamic AID in onPause")
         }
     }
     

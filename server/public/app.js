@@ -46,6 +46,22 @@
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelay',
+        credential: 'openrelay',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelay',
+        credential: 'openrelay',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelay',
+        credential: 'openrelay',
+      },
     ],
   };
 
@@ -62,7 +78,7 @@
   function getFileIcon(filename) {
     const ext = filename.split('.').pop().toLowerCase();
     switch (ext) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': return '🖼️';
+      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'heic': return '🖼️';
       case 'mp4': case 'mov': case 'avi': case 'mkv': return '🎬';
       case 'mp3': case 'wav': case 'ogg': case 'flac': case 'm4a': return '🎵';
       case 'pdf': return '📄';
@@ -78,16 +94,13 @@
 
   // Parse Room ID from URL
   function getRoomFromUrl() {
-    // Check search params
     const params = new URLSearchParams(window.location.search);
     if (params.get('room')) return params.get('room');
 
-    // Check hash
     const hash = window.location.hash.substring(1);
     if (hash.startsWith('room=')) return hash.substring(5);
     if (hash.length > 2) return hash;
 
-    // Check path /r/:roomId
     const pathParts = window.location.pathname.split('/');
     if (pathParts.length >= 3 && (pathParts[1] === 'r' || pathParts[1] === 't')) {
       return pathParts[2];
@@ -159,6 +172,7 @@
     }
 
     ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       console.log('[Signaling] WebSocket connected');
@@ -171,11 +185,25 @@
     };
 
     ws.onmessage = async (event) => {
+      // Check if binary chunk received over WebSocket relay
+      if (event.data instanceof ArrayBuffer) {
+        handleBinaryChunk(event.data);
+        return;
+      } else if (event.data instanceof Blob) {
+        const arrayBuffer = await event.data.arrayBuffer();
+        handleBinaryChunk(arrayBuffer);
+        return;
+      }
+
       try {
         const msg = JSON.parse(event.data);
+        if (msg.type === 'relay') {
+          handleControlMessage(msg.data);
+          return;
+        }
         handleSignalingMessage(msg);
       } catch (e) {
-        console.error('[Signaling] JSON parse error:', e);
+        console.error('[Signaling] parse error:', e);
       }
     };
 
@@ -203,9 +231,9 @@
 
       case 'peer-joined':
         if (msg.role === 'sender') {
-          setStatus('Sender found! Negotiating P2P connection...', 'normal');
+          setStatus('Sender found! Negotiating connection...', 'normal');
           waitingTitle.innerText = 'Sender connected!';
-          waitingDesc.innerText = 'Establishing direct WebRTC peer connection...';
+          waitingDesc.innerText = 'Establishing direct P2P or secure relay connection...';
           initPeerConnection();
         }
         break;
@@ -215,7 +243,7 @@
 
         if (msg.data.type === 'offer') {
           console.log('[WebRTC] Received Offer');
-          setStatus('Connecting directly to phone...', 'normal');
+          setStatus('Connecting to phone...', 'normal');
           await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -227,7 +255,13 @@
         } else if (msg.data.candidate) {
           console.log('[WebRTC] Received ICE Candidate');
           try {
-            await pc.addIceCandidate(new RTCIceCandidate(msg.data.candidate));
+            // Flutter sends candidate as a flat string inside msg.data, so reconstruct RTCIceCandidateInit
+            const candidateInit = {
+              candidate: msg.data.candidate,
+              sdpMid: msg.data.sdpMid ?? '0',
+              sdpMLineIndex: msg.data.sdpMLineIndex ?? 0,
+            };
+            await pc.addIceCandidate(new RTCIceCandidate(candidateInit));
           } catch (e) {
             console.warn('[WebRTC] Error adding ICE candidate:', e);
           }
@@ -244,7 +278,7 @@
   function initPeerConnection() {
     if (pc) return;
 
-    console.log('[WebRTC] Creating RTCPeerConnection');
+    console.log('[WebRTC] Creating RTCPeerConnection with STUN & TURN fallback');
     pc = new RTCPeerConnection(RTC_CONFIG);
 
     pc.onicecandidate = (event) => {
@@ -261,8 +295,9 @@
       console.log('[WebRTC] Connection state:', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setStatus('Direct P2P Encrypted Connection Established!', 'connected');
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        setStatus('P2P Connection lost', 'error');
+      } else if (pc.connectionState === 'failed') {
+        console.log('[WebRTC] Direct P2P failed. Falling back to WebSocket Relay.');
+        setStatus('Connecting via Secure Relay (Cellular)...', 'connected');
       }
     };
 
@@ -284,7 +319,6 @@
     };
 
     dataChannel.onmessage = (event) => {
-      // Check if message is binary (ArrayBuffer) or text (JSON metadata)
       if (typeof event.data === 'string') {
         handleControlMessage(event.data);
       } else if (event.data instanceof ArrayBuffer) {
@@ -305,15 +339,19 @@
   function handleControlMessage(text) {
     let msg;
     try {
-      msg = JSON.parse(text);
+      msg = typeof text === 'object' ? text : JSON.parse(text);
     } catch (e) {
       console.error('Invalid control message:', text);
       return;
     }
 
-    console.log('[DataChannel Control]', msg.type, msg);
+    console.log('[Control Message]', msg.type, msg);
 
     switch (msg.type) {
+      case 'relay-activated':
+        setStatus('Transferring via Secure Relay (Cellular)...', 'connected');
+        break;
+
       case 'meta':
         expectedFiles = msg.files || [];
         totalBytesAllFiles = expectedFiles.reduce((acc, f) => acc + (f.size || 0), 0);
@@ -345,7 +383,6 @@
         };
 
         updateFileStatus(currentFileIndex, 'Completed', 100, blobUrl);
-        // Automatically trigger download for single or individual files
         triggerBrowserDownload(blobUrl, fileMeta.name);
 
         currentFileChunks = [];
@@ -478,4 +515,3 @@
   // Start on page load
   window.addEventListener('DOMContentLoaded', init);
 })();
-
