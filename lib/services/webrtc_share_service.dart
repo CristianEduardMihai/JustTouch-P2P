@@ -272,6 +272,9 @@ class WebRtcShareService with ChangeNotifier {
 
     _peerConnection!.onIceConnectionState = (state) {
       _logger.info('IceConnectionState: $state');
+    };
+
+    final init = RTCDataChannelInit()
       ..ordered = true
       ..maxRetransmits = 30;
 
