@@ -250,7 +250,7 @@ class FileServerService {
     buffer.writeln('<body>');
     buffer.writeln('    <div class="container">');
     buffer.writeln('        <div class="header">');
-    buffer.writeln('            <h1>📁 JustTouch</h1>');
+    buffer.writeln('            <h1>JustTouch</h1>');
     buffer.writeln('            <p>Touch-to-share file transfer</p>');
     buffer.writeln('        </div>');
     buffer.writeln('        <div class="content">');
@@ -300,46 +300,8 @@ class FileServerService {
   }
 
   String _getFileIcon(String extension) {
-    switch (extension) {
-      case '.jpg':
-      case '.jpeg':
-      case '.png':
-      case '.gif':
-      case '.bmp':
-      case '.webp':
-        return '🖼️';
-      case '.mp4':
-      case '.avi':
-      case '.mov':
-      case '.wmv':
-      case '.flv':
-        return '🎥';
-      case '.mp3':
-      case '.wav':
-      case '.aac':
-      case '.flac':
-      case '.ogg':
-        return '🎵';
-      case '.pdf':
-        return '📄';
-      case '.doc':
-      case '.docx':
-        return '📝';
-      case '.xls':
-      case '.xlsx':
-        return '📊';
-      case '.ppt':
-      case '.pptx':
-        return '📈';
-      case '.zip':
-      case '.rar':
-      case '.7z':
-        return '🗜️';
-      case '.txt':
-        return '📋';
-      default:
-        return '📁';
-    }
+    final label = extension.replaceFirst('.', '').toUpperCase();
+    return label.isEmpty ? 'FILE' : label.substring(0, label.length.clamp(0, 4));
   }
 
   String _escapeHtml(String text) {

@@ -1,6 +1,6 @@
 {
-    "name": "jtv7",
-    "short_name": "jtv7",
+    "name": "JustTouch",
+    "short_name": "JustTouch",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

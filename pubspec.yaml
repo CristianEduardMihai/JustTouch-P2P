@@ -81,10 +81,10 @@ dev_dependencies:
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
-flutter_icons:
+flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/logo.png"
+  image_path: "assets/images/logo-square.png"
 
 flutter:
 
@@ -92,6 +92,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/images/logo-square.png
+    - assets/images/long-banner.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

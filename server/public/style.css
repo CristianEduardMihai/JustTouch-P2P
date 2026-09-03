@@ -75,6 +75,37 @@ body {
   animation: float 4s ease-in-out infinite;
 }
 
+.wordmark {
+  display: block;
+  width: min(230px, 58vw);
+  height: auto;
+  margin: 0;
+}
+
+.card-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  min-height: 76px;
+  padding: 14px 20px;
+  background: white;
+}
+
+.card-brand .subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.logo-badge img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
 .touch-icon {
   width: 34px;
   height: 34px;
@@ -197,6 +228,12 @@ body {
   align-items: center;
   justify-content: center;
   box-shadow: 0 6px 18px rgba(233, 30, 99, 0.4);
+}
+
+.radar-logo {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
 }
 
 .radar-center-icon svg {

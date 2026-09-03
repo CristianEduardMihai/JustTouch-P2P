@@ -298,7 +298,7 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _isDesktop ? '�️ Share Files' : '�📱 Scan QR Code',
+                  _isDesktop ? 'Share Files' : 'Scan QR Code',
                   style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w600,
@@ -346,14 +346,12 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
                           textAlign: TextAlign.center,
                         ),
                       ),
-                      if (_isDesktop) ...[
-                        const SizedBox(width: 8),
-                        IconButton(
-                          onPressed: () => _copyToClipboard(_serverUrl!),
-                          icon: const Icon(Icons.copy, size: 18),
-                          tooltip: 'Copy URL',
-                        ),
-                      ],
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _copyToClipboard(_serverUrl!),
+                        icon: const Icon(Icons.copy, size: 18),
+                        tooltip: 'Copy link',
+                      ),
                     ],
                   ),
                 ),
@@ -509,16 +507,13 @@ class _JustTouchHomePageState extends State<JustTouchHomePage> {
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
                   children: [
-                    const Icon(Icons.touch_app, size: 80, color: Colors.white),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'JustTouch',
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.w300,
-                        color: Colors.white,
-                      ),
+                    Image.asset(
+                      'assets/images/long-banner.png',
+                      width: 260,
+                      height: 80,
+                      fit: BoxFit.contain,
                     ),
+                    const SizedBox(height: 16),
                     const SizedBox(height: 8),
                     Text(
                       _isDesktop

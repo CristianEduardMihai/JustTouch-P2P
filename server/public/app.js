@@ -74,22 +74,10 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
-  // Helper: Get File Icon
+  // Use compact file labels instead of emoji icons.
   function getFileIcon(filename) {
     const ext = filename.split('.').pop().toLowerCase();
-    switch (ext) {
-      case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': case 'heic': return '🖼️';
-      case 'mp4': case 'mov': case 'avi': case 'mkv': return '🎬';
-      case 'mp3': case 'wav': case 'ogg': case 'flac': case 'm4a': return '🎵';
-      case 'pdf': return '📄';
-      case 'zip': case 'rar': case '7z': case 'tar': case 'gz': return '📦';
-      case 'doc': case 'docx': return '📝';
-      case 'xls': case 'xlsx': return '📊';
-      case 'ppt': case 'pptx': return '📈';
-      case 'txt': case 'md': return '📋';
-      case 'apk': return '📱';
-      default: return '📁';
-    }
+    return ext && ext !== filename.toLowerCase() ? ext.slice(0, 4).toUpperCase() : 'FILE';
   }
 
   // Parse Room ID from URL

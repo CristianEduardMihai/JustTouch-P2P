@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>JustTouch - P2P File Transfer</title>
+  <link rel="icon" type="image/x-icon" href="/assets/favicon_io/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon_io/favicon-32x32.png">
+  <link rel="apple-touch-icon" href="/assets/favicon_io/apple-touch-icon.png">
   <link rel="stylesheet" href="/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,20 +16,13 @@
   <div class="background-gradient"></div>
 
   <main class="container">
-    <!-- Header -->
-    <header class="app-header">
-      <div class="logo-badge">
-        <svg class="touch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a4 4 0 0 1 4 4v7.5a2.5 2.5 0 0 1-5 0V8a1 1 0 0 0-2 0v8.5a4.5 4.5 0 0 0 9 0V9a2 2 0 0 0-4 0v4.5"></path>
-          <path d="M18 11.5V6a6 6 0 0 0-12 0v9.5a6.5 6.5 0 0 0 13 0"></path>
-        </svg>
-      </div>
-      <h1>JustTouch</h1>
-      <p class="subtitle">Direct Peer-to-Peer File Transfer</p>
-    </header>
-
     <!-- Main Card -->
     <section class="transfer-card">
+      <div class="card-brand">
+        <img class="wordmark" src="/assets/long-banner.png" alt="JustTouch">
+        <p class="subtitle">Direct Peer-to-Peer File Transfer</p>
+      </div>
+
       <!-- Status Bar -->
       <div class="status-bar" id="statusBar">
         <span class="status-dot pulse" id="statusDot"></span>
@@ -59,12 +55,7 @@
           <div class="radar-circle circle-2"></div>
           <div class="radar-circle circle-3"></div>
           <div class="radar-center-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
-              <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
-              <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
-              <line x1="12" y1="20" x2="12.01" y2="20"></line>
-            </svg>
+            <img src="/assets/logo-square.png" alt="" class="radar-logo">
           </div>
         </div>
         <h2 id="waitingTitle">Connecting to sender...</h2>
@@ -110,8 +101,8 @@
     </section>
 
     <!-- Footer -->
-    <footer class="app-footer">
-      <p>🔒 End-to-End Direct Encrypted P2P • No Cloud Storage</p>
+      <footer class="app-footer">
+        <p>End-to-end encrypted peer-to-peer transfer · No cloud storage</p>
     </footer>
   </main>
 

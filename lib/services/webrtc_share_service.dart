@@ -75,9 +75,9 @@ class WebRtcShareService with ChangeNotifier {
 
   String _generateRoomId() {
     const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
-    final rand = Random();
+    final rand = Random.secure();
     final buffer = StringBuffer('jt-');
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 16; i++) {
       buffer.write(chars[rand.nextInt(chars.length)]);
     }
     return buffer.toString();

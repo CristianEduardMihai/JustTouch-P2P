@@ -6,13 +6,22 @@ const { WebSocketServer, WebSocket } = require('ws');
 const PORT = process.env.PORT || 8080;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 200);
+const MAX_CONNECTIONS_PER_IP = Number(process.env.MAX_CONNECTIONS_PER_IP || 12);
+const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
 const MAX_ROOMS = Number(process.env.MAX_ROOMS || 1000);
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS || 60 * 60 * 1000);
 const MAX_MESSAGE_BYTES = 256 * 1024;
 const MAX_BINARY_BYTES = 64 * 1024;
 const MAX_MESSAGES_PER_WINDOW = 120;
 const RATE_WINDOW_MS = 60 * 1000;
-const ROOM_ID_PATTERN = /^jt-[a-hj-km-np-z2-9]{6}$/;
+const ROOM_ID_PATTERN = /^jt-[a-hj-km-np-z2-9]{16}$/;
+const allowedOrigins = new Set(
+  (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+const connectionsByIp = new Map();
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -85,6 +94,19 @@ const wss = new WebSocketServer({ server, maxPayload: MAX_MESSAGE_BYTES });
 // Map of roomId -> { sender: ws, receiver: ws, createdAt: timestamp }
 const rooms = new Map();
 
+function getClientIp(req) {
+  if (TRUST_PROXY && typeof req.headers['cf-connecting-ip'] === 'string') {
+    return req.headers['cf-connecting-ip'];
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.size === 0) return true;
+  return allowedOrigins.has(origin);
+}
+
 function sendJson(ws, obj) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(obj));
@@ -92,13 +114,25 @@ function sendJson(ws, obj) {
 }
 
 wss.on('connection', (ws, req) => {
-  if (wss.clients.size > MAX_CONNECTIONS) {
+  const clientIp = getClientIp(req);
+  if (!isAllowedOrigin(req.headers.origin)) {
+    ws.close(1008, 'Origin not allowed');
+    return;
+  }
+  if (wss.clients.size >= MAX_CONNECTIONS) {
     ws.close(1013, 'Server is busy');
     return;
   }
+  const ipConnections = connectionsByIp.get(clientIp) || 0;
+  if (ipConnections >= MAX_CONNECTIONS_PER_IP) {
+    ws.close(1008, 'Too many connections');
+    return;
+  }
+  connectionsByIp.set(clientIp, ipConnections + 1);
 
   let currentRoomId = null;
   let currentRole = null;
+  let connectionReleased = false;
   let messageWindowStarted = Date.now();
   let messageCount = 0;
   ws.isAlive = true;
@@ -263,10 +297,25 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  ws.on('close', cleanupPeer);
+  function releaseConnection() {
+    if (connectionReleased) return;
+    connectionReleased = true;
+    const remaining = (connectionsByIp.get(clientIp) || 1) - 1;
+    if (remaining > 0) {
+      connectionsByIp.set(clientIp, remaining);
+    } else {
+      connectionsByIp.delete(clientIp);
+    }
+  }
+
+  ws.on('close', () => {
+    cleanupPeer();
+    releaseConnection();
+  });
   ws.on('error', (err) => {
     console.error(`[WebSocket Error]`, err.message);
     cleanupPeer();
+    releaseConnection();
   });
 });
 

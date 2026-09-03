@@ -35,3 +35,9 @@ cloudflared tunnel --url http://localhost:8080
 ```
 Then configure your Android app to use your public domain (e.g., `https://justtouch.cristianmihai.cc`).
 
+For production behind Cloudflare Tunnel, set `ALLOWED_ORIGINS` to the HTTPS origin serving
+the receiver and set `TRUST_PROXY=true` so per-IP limits use Cloudflare's client IP header.
+Do not enable `TRUST_PROXY` when exposing the Node server directly. Native
+Flutter clients do not send a browser `Origin` header and continue to work without a
+password. Room links use high-entropy IDs so the link itself acts as the share secret.
+
